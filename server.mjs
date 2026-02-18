@@ -5,18 +5,17 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import multer from 'multer';
-import { v2 as cloudinary } from 'cloudinary';
 import nodemailer from 'nodemailer';
 import winston from 'winston';
 import axios from 'axios';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -55,23 +54,327 @@ const logger = winston.createLogger({
   ]
 });
 
-// Simple in-memory cache (instead of Redis)
-const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 menit
+// =====================================================
+// IN-MEMORY DATABASE (SEMUA DATA DISIMPAN DI RAM)
+// =====================================================
 
-// Cloudinary config
-if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+// Users collection
+const users = new Map(); // key: id, value: user object
+const usersByEmail = new Map(); // key: email, value: user id
+const usersByUsername = new Map(); // key: username, value: user id
+
+// Projects collection
+const projects = new Map(); // key: id, value: project object
+
+// Articles collection
+const articles = new Map(); // key: id, value: article object
+const articlesBySlug = new Map(); // key: slug, value: article id
+
+// Messages collection
+const messages = new Map(); // key: id, value: message object
+
+// Chat history collection
+const chatSessions = new Map(); // key: sessionId, value: chat session object
+
+// Analytics collection
+const analytics = []; // array of analytics entries
+
+// =====================================================
+// INITIAL SAMPLE DATA
+// =====================================================
+
+async function initializeSampleData() {
+  logger.info('📦 Initializing sample data...');
+
+  // Create admin user
+  const adminId = uuidv4();
+  const hashedPassword = await bcrypt.hash('Admin123!', 10);
+  
+  const adminUser = {
+    id: adminId,
+    username: 'admin',
+    email: 'admin@teguh.dev',
+    password: hashedPassword,
+    role: 'admin',
+    profilePicture: 'https://ui-avatars.com/api/?name=Admin&background=0D9489&color=fff&size=128',
+    bio: 'Administrator and Full-Stack Developer',
+    socialLinks: {
+      github: 'https://github.com/teguh',
+      linkedin: 'https://linkedin.com/in/teguh',
+      twitter: 'https://twitter.com/teguh',
+      instagram: 'https://instagram.com/teguh'
+    },
+    createdAt: new Date(),
+    lastLogin: null
+  };
+
+  users.set(adminId, adminUser);
+  usersByEmail.set(adminUser.email, adminId);
+  usersByUsername.set(adminUser.username, adminId);
+
+  // Create sample user
+  const userId = uuidv4();
+  const userPassword = await bcrypt.hash('User123!', 10);
+  
+  const sampleUser = {
+    id: userId,
+    username: 'johndoe',
+    email: 'john@example.com',
+    password: userPassword,
+    role: 'user',
+    profilePicture: 'https://ui-avatars.com/api/?name=John+Doe&background=random&color=fff&size=128',
+    bio: 'Web Developer & AI Enthusiast',
+    socialLinks: {
+      github: 'https://github.com/johndoe',
+      linkedin: 'https://linkedin.com/in/johndoe',
+      twitter: 'https://twitter.com/johndoe',
+      instagram: 'https://instagram.com/johndoe'
+    },
+    createdAt: new Date(),
+    lastLogin: null
+  };
+
+  users.set(userId, sampleUser);
+  usersByEmail.set(sampleUser.email, userId);
+  usersByUsername.set(sampleUser.username, userId);
+
+  // Create sample projects
+  const sampleProjects = [
+    {
+      id: uuidv4(),
+      title: 'AI-Powered Dashboard',
+      description: 'Interactive dashboard with AI insights and real-time analytics',
+      longDescription: 'A comprehensive dashboard that uses machine learning to provide business insights, predict trends, and automate reporting. Built with React and TensorFlow.js.',
+      image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800',
+      images: [
+        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800',
+        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800'
+      ],
+      technologies: ['React', 'TensorFlow.js', 'Node.js', 'MongoDB', 'Socket.io'],
+      category: 'web',
+      liveUrl: 'https://ai-dashboard.demo.com',
+      githubUrl: 'https://github.com/teguh/ai-dashboard',
+      featured: true,
+      views: 1234,
+      likes: 89,
+      createdAt: new Date('2024-01-15'),
+      updatedAt: new Date('2024-01-15')
+    },
+    {
+      id: uuidv4(),
+      title: 'Smart Automation Bot',
+      description: 'Telegram bot for task automation and reminders',
+      longDescription: 'An intelligent bot that helps users automate daily tasks, set reminders, and integrate with various APIs including Google Calendar and Trello.',
+      image: 'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800',
+      images: [
+        'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800'
+      ],
+      technologies: ['Python', 'Telegraf', 'Redis', 'Docker', 'PostgreSQL'],
+      category: 'automation',
+      liveUrl: 'https://t.me/smartauto_bot',
+      githubUrl: 'https://github.com/teguh/auto-bot',
+      featured: true,
+      views: 2341,
+      likes: 156,
+      createdAt: new Date('2024-02-20'),
+      updatedAt: new Date('2024-02-20')
+    },
+    {
+      id: uuidv4(),
+      title: 'E-Commerce Platform',
+      description: 'Modern e-commerce with AI product recommendations',
+      longDescription: 'Full-featured e-commerce platform with personalized product recommendations based on user behavior and purchase history.',
+      image: 'https://images.unsplash.com/photo-1557821552-17105176677c?w=800',
+      images: [
+        'https://images.unsplash.com/photo-1557821552-17105176677c?w=800'
+      ],
+      technologies: ['Next.js', 'Stripe', 'PostgreSQL', 'Prisma', 'Tailwind CSS'],
+      category: 'web',
+      liveUrl: 'https://ecommerce.demo.com',
+      githubUrl: 'https://github.com/teguh/ecommerce',
+      featured: true,
+      views: 3456,
+      likes: 234,
+      createdAt: new Date('2024-03-10'),
+      updatedAt: new Date('2024-03-10')
+    },
+    {
+      id: uuidv4(),
+      title: 'Mobile Weather App',
+      description: 'Cross-platform weather app with beautiful animations',
+      longDescription: 'A mobile application built with React Native that provides real-time weather information with beautiful animations and predictive analytics.',
+      image: 'https://images.unsplash.com/photo-1592210454359-9043f067919b?w=800',
+      images: [
+        'https://images.unsplash.com/photo-1592210454359-9043f067919b?w=800'
+      ],
+      technologies: ['React Native', 'Expo', 'OpenWeather API', 'Redux', 'Lottie'],
+      category: 'mobile',
+      liveUrl: 'https://play.google.com/store/apps/details?id=com.weather.app',
+      githubUrl: 'https://github.com/teguh/weather-app',
+      featured: false,
+      views: 567,
+      likes: 45,
+      createdAt: new Date('2024-04-05'),
+      updatedAt: new Date('2024-04-05')
+    }
+  ];
+
+  sampleProjects.forEach(project => {
+    projects.set(project.id, project);
   });
-  logger.info('✅ Cloudinary configured');
-} else {
-  logger.warn('⚠️ Cloudinary credentials missing, file uploads will be saved locally only');
+
+  // Create sample articles
+  const sampleArticles = [
+    {
+      id: uuidv4(),
+      title: 'Getting Started with AI in Web Development',
+      slug: 'getting-started-with-ai-in-web-development',
+      excerpt: 'Learn how to integrate AI and machine learning into your web applications',
+      content: `# Getting Started with AI in Web Development
+
+Artificial Intelligence is revolutionizing web development. In this article, we'll explore how you can integrate AI capabilities into your web applications.
+
+## Why AI in Web Development?
+
+AI can enhance user experience, automate tasks, and provide valuable insights. From chatbots to recommendation systems, the possibilities are endless.
+
+## Getting Started
+
+1. Choose your AI framework (TensorFlow.js, Brain.js, etc.)
+2. Understand your data requirements
+3. Start with simple models
+4. Iterate and improve
+
+## Example: Building a Simple Chatbot
+
+Here's a basic example using TensorFlow.js:
+
+\`\`\`javascript
+import * as tf from '@tensorflow/tfjs';
+
+// Your chatbot code here
+\`\`\`
+
+## Conclusion
+
+AI is accessible to web developers. Start small and experiment!`,
+      coverImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
+      author: adminId,
+      tags: ['AI', 'Web Development', 'Machine Learning', 'JavaScript'],
+      category: 'AI',
+      readTime: 8,
+      views: 567,
+      likes: 45,
+      comments: [
+        {
+          id: uuidv4(),
+          user: userId,
+          content: 'Great article! Very helpful for beginners.',
+          createdAt: new Date('2024-04-10')
+        }
+      ],
+      published: true,
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-01')
+    },
+    {
+      id: uuidv4(),
+      title: 'Building Scalable Node.js Applications',
+      slug: 'building-scalable-nodejs-applications',
+      excerpt: 'Best practices for building production-ready Node.js applications',
+      content: `# Building Scalable Node.js Applications
+
+When building Node.js applications for production, scalability should be a primary concern.
+
+## Key Concepts
+
+- Microservices architecture
+- Load balancing
+- Database optimization
+- Caching strategies
+
+## Architecture Patterns
+
+### 1. Monolithic vs Microservices
+
+Choose based on your team size and project requirements.
+
+### 2. Event-Driven Architecture
+
+Use message queues for better scalability.
+
+## Performance Tips
+
+- Use clustering
+- Implement caching
+- Optimize database queries
+- Use CDN for static assets
+
+## Conclusion
+
+Scalability requires planning but pays off in the long run.`,
+      coverImage: 'https://images.unsplash.com/photo-1516259762381-22954d7d3ad2?w=800',
+      author: adminId,
+      tags: ['Node.js', 'Backend', 'Scalability', 'Architecture'],
+      category: 'Backend',
+      readTime: 12,
+      views: 890,
+      likes: 67,
+      comments: [],
+      published: true,
+      createdAt: new Date('2024-03-15'),
+      updatedAt: new Date('2024-03-15')
+    }
+  ];
+
+  sampleArticles.forEach(article => {
+    articles.set(article.id, article);
+    articlesBySlug.set(article.slug, article.id);
+  });
+
+  // Create sample messages
+  const sampleMessages = [
+    {
+      id: uuidv4(),
+      name: 'Budi Santoso',
+      email: 'budi@example.com',
+      subject: 'Project Collaboration',
+      message: 'Hi, I would like to discuss a potential collaboration on an AI project.',
+      read: false,
+      replied: false,
+      createdAt: new Date('2024-04-12')
+    },
+    {
+      id: uuidv4(),
+      name: 'Siti Rahayu',
+      email: 'siti@example.com',
+      subject: 'Job Opportunity',
+      message: 'We have a full-stack developer position that might interest you.',
+      read: true,
+      replied: true,
+      createdAt: new Date('2024-04-10')
+    }
+  ];
+
+  sampleMessages.forEach(message => {
+    messages.set(message.id, message);
+  });
+
+  logger.info(`✅ Sample data initialized:
+    - Users: ${users.size}
+    - Projects: ${projects.size}
+    - Articles: ${articles.size}
+    - Messages: ${messages.size}
+  `);
 }
 
-// Multer config for file uploads
+// Initialize sample data
+await initializeSampleData();
+
+// =====================================================
+// MULTER CONFIG FOR FILE UPLOADS
+// =====================================================
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/';
@@ -102,7 +405,10 @@ const upload = multer({
   }
 });
 
-// Email transporter
+// =====================================================
+// EMAIL TRANSPORTER
+// =====================================================
+
 let transporter;
 try {
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
@@ -122,109 +428,6 @@ try {
   logger.error('❌ Email transporter error:', error.message);
   transporter = null;
 }
-
-// =====================================================
-// MONGODB SCHEMAS
-// =====================================================
-
-// User Schema
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' },
-  profilePicture: { type: String, default: '' },
-  bio: { type: String, default: '' },
-  socialLinks: {
-    github: { type: String, default: '' },
-    linkedin: { type: String, default: '' },
-    twitter: { type: String, default: '' },
-    instagram: { type: String, default: '' }
-  },
-  createdAt: { type: Date, default: Date.now },
-  lastLogin: { type: Date }
-});
-
-// Project Schema
-const projectSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  description: { type: String, required: true },
-  longDescription: { type: String, default: '' },
-  image: { type: String, default: '' },
-  images: { type: [String], default: [] },
-  technologies: { type: [String], default: [] },
-  category: { type: String, enum: ['web', 'mobile', 'ai', 'automation'], default: 'web' },
-  liveUrl: { type: String, default: '' },
-  githubUrl: { type: String, default: '' },
-  featured: { type: Boolean, default: false },
-  views: { type: Number, default: 0 },
-  likes: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Article Schema
-const articleSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  slug: { type: String, required: true, unique: true },
-  excerpt: { type: String, required: true },
-  content: { type: String, required: true },
-  coverImage: { type: String, default: '' },
-  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  tags: { type: [String], default: [] },
-  category: { type: String, default: 'general' },
-  readTime: { type: Number, default: 5 },
-  views: { type: Number, default: 0 },
-  likes: { type: Number, default: 0 },
-  comments: [{
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    content: String,
-    createdAt: { type: Date, default: Date.now }
-  }],
-  published: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Message Schema
-const messageSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true },
-  subject: { type: String, required: true },
-  message: { type: String, required: true },
-  read: { type: Boolean, default: false },
-  replied: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
-});
-
-// Chat History Schema
-const chatHistorySchema = new mongoose.Schema({
-  sessionId: { type: String, required: true, index: true },
-  messages: [{
-    role: { type: String, enum: ['user', 'assistant'], required: true },
-    content: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now }
-  }],
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Analytics Schema
-const analyticsSchema = new mongoose.Schema({
-  page: { type: String, required: true },
-  ip: { type: String, required: true },
-  userAgent: { type: String, required: true },
-  referrer: { type: String, default: 'direct' },
-  timestamp: { type: Date, default: Date.now, index: true }
-});
-
-// Create models
-const User = mongoose.model('User', userSchema);
-const Project = mongoose.model('Project', projectSchema);
-const Article = mongoose.model('Article', articleSchema);
-const Message = mongoose.model('Message', messageSchema);
-const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
-const Analytics = mongoose.model('Analytics', analyticsSchema);
 
 // =====================================================
 // MIDDLEWARE
@@ -283,24 +486,26 @@ const isAdmin = (req, res, next) => {
 };
 
 // Analytics middleware
-const trackAnalytics = async (req, res, next) => {
+const trackAnalytics = (req, res, next) => {
   // Skip untuk static files
   if (req.path.startsWith('/uploads/') || req.path.includes('.')) {
     return next();
   }
   
   try {
-    const analytics = new Analytics({
+    analytics.push({
+      id: uuidv4(),
       page: req.path,
       ip: req.ip || req.socket.remoteAddress || '0.0.0.0',
       userAgent: req.headers['user-agent'] || 'unknown',
-      referrer: req.headers['referer'] || 'direct'
+      referrer: req.headers['referer'] || 'direct',
+      timestamp: new Date()
     });
     
-    // Jangan blocking request
-    analytics.save().catch(err => 
-      logger.error('Analytics save error:', err)
-    );
+    // Batasi ukuran analytics (simpan 1000 entry terakhir)
+    if (analytics.length > 1000) {
+      analytics.splice(0, analytics.length - 1000);
+    }
   } catch (error) {
     logger.error('Analytics error:', error);
   }
@@ -328,196 +533,6 @@ app.use('/api/', limiter);
 app.use('/api/auth/', authLimiter);
 
 // =====================================================
-// DATABASE CONNECTION
-// =====================================================
-
-async function connectToMongoDB() {
-  try {
-    const mongoUri = process.env.MONGODB_URI;
-    
-    if (!mongoUri) {
-      throw new Error('MONGODB_URI tidak ditemukan di file .env');
-    }
-
-    logger.info('🔄 Menghubungkan ke MongoDB Atlas...');
-    
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
-    
-    logger.info('✅ Connected to MongoDB Atlas');
-    
-    // Create indexes
-    await createIndexes();
-    
-    // Create admin user if not exists
-    await createAdminUser();
-    
-    // Create sample data if empty
-    await createSampleData();
-    
-  } catch (error) {
-    logger.error('❌ MongoDB connection error:', error.message);
-    logger.error('💡 Tips: Periksa MONGODB_URI di file .env');
-    process.exit(1);
-  }
-}
-
-async function createIndexes() {
-  try {
-    await User.collection.createIndex({ email: 1 }, { unique: true });
-    await User.collection.createIndex({ username: 1 }, { unique: true });
-    await Project.collection.createIndex({ category: 1 });
-    await Project.collection.createIndex({ featured: 1 });
-    await Project.collection.createIndex({ createdAt: -1 });
-    await Article.collection.createIndex({ slug: 1 }, { unique: true });
-    await Article.collection.createIndex({ tags: 1 });
-    await Article.collection.createIndex({ createdAt: -1 });
-    await ChatHistory.collection.createIndex({ sessionId: 1 });
-    await ChatHistory.collection.createIndex({ updatedAt: -1 });
-    await Analytics.collection.createIndex({ timestamp: -1 });
-    await Analytics.collection.createIndex({ page: 1 });
-    
-    logger.info('✅ Database indexes created');
-  } catch (error) {
-    logger.error('Error creating indexes:', error.message);
-  }
-}
-
-async function createAdminUser() {
-  try {
-    const adminExists = await User.findOne({ role: 'admin' });
-    
-    if (!adminExists) {
-      const hashedPassword = await bcrypt.hash('Admin123!', 10);
-      await User.create({
-        username: 'admin',
-        email: 'admin@teguh.dev',
-        password: hashedPassword,
-        role: 'admin',
-        profilePicture: '',
-        bio: 'Administrator of Teguh Portfolio',
-        socialLinks: {
-          github: 'https://github.com/teguh',
-          linkedin: 'https://linkedin.com/in/teguh',
-          twitter: 'https://twitter.com/teguh',
-          instagram: 'https://instagram.com/teguh'
-        }
-      });
-      logger.info('✅ Admin user created');
-      logger.info('📧 Email: admin@teguh.dev');
-      logger.info('🔑 Password: Admin123!');
-    } else {
-      logger.info('✅ Admin user already exists');
-    }
-  } catch (error) {
-    logger.error('Error creating admin user:', error.message);
-  }
-}
-
-async function createSampleData() {
-  try {
-    const projectCount = await Project.countDocuments();
-    const articleCount = await Article.countDocuments();
-    
-    if (projectCount === 0) {
-      logger.info('📦 Creating sample projects...');
-      
-      const sampleProjects = [
-        {
-          title: 'AI-Powered Dashboard',
-          description: 'Interactive dashboard with AI insights and real-time analytics',
-          longDescription: 'A comprehensive dashboard that uses machine learning to provide business insights, predict trends, and automate reporting.',
-          technologies: ['React', 'TensorFlow.js', 'Node.js', 'MongoDB'],
-          category: 'web',
-          featured: true,
-          image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800',
-          githubUrl: 'https://github.com/teguh/ai-dashboard',
-          liveUrl: 'https://ai-dashboard.demo.com',
-          views: 1234,
-          likes: 89
-        },
-        {
-          title: 'Smart Automation Bot',
-          description: 'Telegram bot for task automation and reminders',
-          longDescription: 'A intelligent bot that helps users automate daily tasks, set reminders, and integrate with various APIs.',
-          technologies: ['Python', 'Telegram API', 'Redis', 'Docker'],
-          category: 'automation',
-          featured: true,
-          image: 'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800',
-          githubUrl: 'https://github.com/teguh/auto-bot',
-          liveUrl: 'https://t.me/smartauto_bot',
-          views: 2341,
-          likes: 156
-        },
-        {
-          title: 'E-Commerce Platform',
-          description: 'Modern e-commerce with AI product recommendations',
-          longDescription: 'Full-featured e-commerce platform with personalized product recommendations based on user behavior.',
-          technologies: ['Next.js', 'Stripe', 'PostgreSQL', 'Redis'],
-          category: 'web',
-          featured: true,
-          image: 'https://images.unsplash.com/photo-1557821552-17105176677c?w=800',
-          githubUrl: 'https://github.com/teguh/ecommerce',
-          liveUrl: 'https://ecommerce.demo.com',
-          views: 3456,
-          likes: 234
-        }
-      ];
-      
-      await Project.insertMany(sampleProjects);
-      logger.info(`✅ Created ${sampleProjects.length} sample projects`);
-    }
-    
-    if (articleCount === 0) {
-      logger.info('📦 Creating sample articles...');
-      
-      const admin = await User.findOne({ role: 'admin' });
-      
-      const sampleArticles = [
-        {
-          title: 'Getting Started with AI in Web Development',
-          slug: 'getting-started-with-ai-in-web-development',
-          excerpt: 'Learn how to integrate AI and machine learning into your web applications',
-          content: 'Artificial Intelligence is revolutionizing web development...',
-          coverImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
-          author: admin._id,
-          tags: ['AI', 'Web Development', 'Machine Learning'],
-          category: 'AI',
-          readTime: 8,
-          views: 567,
-          likes: 45
-        },
-        {
-          title: 'Building Scalable Node.js Applications',
-          slug: 'building-scalable-nodejs-applications',
-          excerpt: 'Best practices for building production-ready Node.js applications',
-          content: 'When building Node.js applications for production...',
-          coverImage: 'https://images.unsplash.com/photo-1516259762381-22954d7d3ad2?w=800',
-          author: admin._id,
-          tags: ['Node.js', 'Backend', 'Scalability'],
-          category: 'Backend',
-          readTime: 12,
-          views: 890,
-          likes: 67
-        }
-      ];
-      
-      await Article.insertMany(sampleArticles);
-      logger.info(`✅ Created ${sampleArticles.length} sample articles`);
-    }
-  } catch (error) {
-    logger.error('Error creating sample data:', error.message);
-  }
-}
-
-// Connect to MongoDB
-await connectToMongoDB();
-
-// =====================================================
 // API ROUTES
 // =====================================================
 
@@ -526,8 +541,15 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
-    services: {
-      mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    memory: process.memoryUsage(),
+    uptime: process.uptime(),
+    stats: {
+      users: users.size,
+      projects: projects.size,
+      articles: articles.size,
+      messages: messages.size,
+      chatSessions: chatSessions.size,
+      analytics: analytics.length
     }
   });
 });
@@ -546,22 +568,38 @@ app.post('/api/auth/register', [
   try {
     const { username, email, password } = req.body;
     
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
-    if (existingUser) {
+    // Check if user exists
+    if (usersByEmail.has(email) || usersByUsername.has(username)) {
       return res.status(400).json({ message: 'User already exists' });
     }
     
+    const userId = uuidv4();
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({
+    
+    const user = {
+      id: userId,
       username,
       email,
-      password: hashedPassword
-    });
+      password: hashedPassword,
+      role: 'user',
+      profilePicture: `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random&color=fff&size=128`,
+      bio: '',
+      socialLinks: {
+        github: '',
+        linkedin: '',
+        twitter: '',
+        instagram: ''
+      },
+      createdAt: new Date(),
+      lastLogin: null
+    };
     
-    await user.save();
+    users.set(userId, user);
+    usersByEmail.set(email, userId);
+    usersByUsername.set(username, userId);
     
     const token = jwt.sign(
-      { id: user._id, username: user.username, role: user.role },
+      { id: userId, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -570,7 +608,7 @@ app.post('/api/auth/register', [
       message: 'User created successfully',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         role: user.role,
@@ -595,21 +633,23 @@ app.post('/api/auth/login', [
   try {
     const { email, password } = req.body;
     
-    const user = await User.findOne({ email });
-    if (!user) {
+    const userId = usersByEmail.get(email);
+    if (!userId) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
+    const user = users.get(userId);
     const validPassword = await bcrypt.compare(password, user.password);
+    
     if (!validPassword) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
     user.lastLogin = new Date();
-    await user.save();
+    users.set(userId, user);
     
     const token = jwt.sign(
-      { id: user._id, username: user.username, role: user.role },
+      { id: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -618,7 +658,7 @@ app.post('/api/auth/login', [
       message: 'Login successful',
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         email: user.email,
         role: user.role,
@@ -632,26 +672,36 @@ app.post('/api/auth/login', [
 });
 
 // Projects Routes
-app.get('/api/projects', async (req, res) => {
+app.get('/api/projects', (req, res) => {
   try {
     const { category, featured, limit = 10, page = 1 } = req.query;
-    const query = {};
     
-    if (category) query.category = category;
-    if (featured === 'true') query.featured = true;
+    let projectList = Array.from(projects.values());
     
-    const projects = await Project.find(query)
-      .sort({ featured: -1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+    // Filter
+    if (category) {
+      projectList = projectList.filter(p => p.category === category);
+    }
+    if (featured === 'true') {
+      projectList = projectList.filter(p => p.featured);
+    }
     
-    const total = await Project.countDocuments(query);
+    // Sort
+    projectList.sort((a, b) => {
+      if (a.featured && !b.featured) return -1;
+      if (!a.featured && b.featured) return 1;
+      return b.createdAt - a.createdAt;
+    });
+    
+    // Paginate
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedProjects = projectList.slice(start, start + parseInt(limit));
     
     res.json({
-      projects,
-      total,
+      projects: paginatedProjects,
+      total: projectList.length,
       page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      totalPages: Math.ceil(projectList.length / parseInt(limit))
     });
   } catch (error) {
     logger.error('Get projects error:', error);
@@ -659,15 +709,15 @@ app.get('/api/projects', async (req, res) => {
   }
 });
 
-app.get('/api/projects/:id', async (req, res) => {
+app.get('/api/projects/:id', (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const project = projects.get(req.params.id);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
     
     project.views += 1;
-    await project.save();
+    projects.set(project.id, project);
     
     res.json(project);
   } catch (error) {
@@ -681,38 +731,25 @@ app.post('/api/projects', authenticateToken, isAdmin, upload.array('images', 5),
     const projectData = JSON.parse(req.body.data);
     const files = req.files || [];
     
-    // Upload images to Cloudinary (jika dikonfigurasi)
+    // Handle uploaded files
     const imageUrls = [];
     for (const file of files) {
-      try {
-        if (cloudinary.config().cloud_name) {
-          const result = await cloudinary.uploader.upload(file.path, {
-            folder: 'projects',
-            transformation: [
-              { width: 1200, height: 630, crop: 'fill' },
-              { quality: 'auto' }
-            ]
-          });
-          imageUrls.push(result.secure_url);
-        } else {
-          // Simpan lokal jika cloudinary tidak dikonfigurasi
-          const fileUrl = `/uploads/${file.filename}`;
-          imageUrls.push(fileUrl);
-        }
-        // Delete temp file
-        fs.unlinkSync(file.path);
-      } catch (uploadError) {
-        logger.error('Upload error:', uploadError);
-      }
+      const fileUrl = `/uploads/${file.filename}`;
+      imageUrls.push(fileUrl);
     }
     
-    const project = new Project({
+    const project = {
+      id: uuidv4(),
       ...projectData,
       image: imageUrls[0] || projectData.image || '',
-      images: imageUrls.length > 0 ? imageUrls : (projectData.images || [])
-    });
+      images: imageUrls.length > 0 ? imageUrls : (projectData.images || []),
+      views: 0,
+      likes: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
     
-    await project.save();
+    projects.set(project.id, project);
     
     res.status(201).json(project);
   } catch (error) {
@@ -721,31 +758,35 @@ app.post('/api/projects', authenticateToken, isAdmin, upload.array('images', 5),
   }
 });
 
-app.put('/api/projects/:id', authenticateToken, isAdmin, async (req, res) => {
+app.put('/api/projects/:id', authenticateToken, isAdmin, (req, res) => {
   try {
-    const project = await Project.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body, updatedAt: new Date() },
-      { new: true }
-    );
-    
+    const project = projects.get(req.params.id);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
     
-    res.json(project);
+    const updatedProject = {
+      ...project,
+      ...req.body,
+      updatedAt: new Date()
+    };
+    
+    projects.set(req.params.id, updatedProject);
+    
+    res.json(updatedProject);
   } catch (error) {
     logger.error('Update project error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-app.delete('/api/projects/:id', authenticateToken, isAdmin, async (req, res) => {
+app.delete('/api/projects/:id', authenticateToken, isAdmin, (req, res) => {
   try {
-    const project = await Project.findByIdAndDelete(req.params.id);
-    if (!project) {
+    if (!projects.has(req.params.id)) {
       return res.status(404).json({ message: 'Project not found' });
     }
+    
+    projects.delete(req.params.id);
     
     res.json({ message: 'Project deleted successfully' });
   } catch (error) {
@@ -754,15 +795,15 @@ app.delete('/api/projects/:id', authenticateToken, isAdmin, async (req, res) => 
   }
 });
 
-app.post('/api/projects/:id/like', authenticateToken, async (req, res) => {
+app.post('/api/projects/:id/like', authenticateToken, (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
+    const project = projects.get(req.params.id);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
     
     project.likes += 1;
-    await project.save();
+    projects.set(project.id, project);
     
     res.json({ likes: project.likes });
   } catch (error) {
@@ -772,27 +813,46 @@ app.post('/api/projects/:id/like', authenticateToken, async (req, res) => {
 });
 
 // Articles Routes
-app.get('/api/articles', async (req, res) => {
+app.get('/api/articles', (req, res) => {
   try {
     const { tag, category, limit = 10, page = 1 } = req.query;
-    const query = { published: true };
     
-    if (tag) query.tags = tag;
-    if (category) query.category = category;
+    let articleList = Array.from(articles.values())
+      .filter(a => a.published);
     
-    const articles = await Article.find(query)
-      .populate('author', 'username profilePicture')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+    // Filter
+    if (tag) {
+      articleList = articleList.filter(a => a.tags.includes(tag));
+    }
+    if (category) {
+      articleList = articleList.filter(a => a.category === category);
+    }
     
-    const total = await Article.countDocuments(query);
+    // Sort
+    articleList.sort((a, b) => b.createdAt - a.createdAt);
+    
+    // Paginate
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedArticles = articleList.slice(start, start + parseInt(limit));
+    
+    // Add author info
+    const articlesWithAuthor = paginatedArticles.map(article => {
+      const author = users.get(article.author);
+      return {
+        ...article,
+        author: author ? {
+          id: author.id,
+          username: author.username,
+          profilePicture: author.profilePicture
+        } : null
+      };
+    });
     
     res.json({
-      articles,
-      total,
+      articles: articlesWithAuthor,
+      total: articleList.length,
       page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      totalPages: Math.ceil(articleList.length / parseInt(limit))
     });
   } catch (error) {
     logger.error('Get articles error:', error);
@@ -800,19 +860,30 @@ app.get('/api/articles', async (req, res) => {
   }
 });
 
-app.get('/api/articles/:slug', async (req, res) => {
+app.get('/api/articles/:slug', (req, res) => {
   try {
-    const article = await Article.findOne({ slug: req.params.slug })
-      .populate('author', 'username profilePicture bio');
-    
-    if (!article) {
+    const articleId = articlesBySlug.get(req.params.slug);
+    if (!articleId) {
       return res.status(404).json({ message: 'Article not found' });
     }
     
+    const article = articles.get(articleId);
     article.views += 1;
-    await article.save();
+    articles.set(articleId, article);
     
-    res.json(article);
+    // Add author info
+    const author = users.get(article.author);
+    const articleWithAuthor = {
+      ...article,
+      author: author ? {
+        id: author.id,
+        username: author.username,
+        profilePicture: author.profilePicture,
+        bio: author.bio
+      } : null
+    };
+    
+    res.json(articleWithAuthor);
   } catch (error) {
     logger.error('Get article error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -826,23 +897,7 @@ app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'
     
     let coverImageUrl = '';
     if (file) {
-      try {
-        if (cloudinary.config().cloud_name) {
-          const result = await cloudinary.uploader.upload(file.path, {
-            folder: 'articles',
-            transformation: [
-              { width: 1200, height: 630, crop: 'fill' },
-              { quality: 'auto' }
-            ]
-          });
-          coverImageUrl = result.secure_url;
-        } else {
-          coverImageUrl = `/uploads/${file.filename}`;
-        }
-        fs.unlinkSync(file.path);
-      } catch (uploadError) {
-        logger.error('Upload error:', uploadError);
-      }
+      coverImageUrl = `/uploads/${file.filename}`;
     }
     
     const slug = articleData.title
@@ -850,19 +905,28 @@ app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
     
-    const article = new Article({
+    // Calculate read time
+    const wordsPerMinute = 200;
+    const wordCount = articleData.content.split(/\s+/).length;
+    const readTime = Math.ceil(wordCount / wordsPerMinute);
+    
+    const article = {
+      id: uuidv4(),
       ...articleData,
       coverImage: coverImageUrl || articleData.coverImage,
       author: req.user.id,
-      slug
-    });
+      slug,
+      readTime,
+      views: 0,
+      likes: 0,
+      comments: [],
+      published: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
     
-    // Calculate read time
-    const wordsPerMinute = 200;
-    const wordCount = article.content.split(/\s+/).length;
-    article.readTime = Math.ceil(wordCount / wordsPerMinute);
-    
-    await article.save();
+    articles.set(article.id, article);
+    articlesBySlug.set(slug, article.id);
     
     res.status(201).json(article);
   } catch (error) {
@@ -873,26 +937,29 @@ app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'
 
 app.post('/api/articles/:id/comments', authenticateToken, [
   body('content').isLength({ min: 1, max: 500 }).trim().escape()
-], async (req, res) => {
+], (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
   
   try {
-    const article = await Article.findById(req.params.id);
+    const article = articles.get(req.params.id);
     if (!article) {
       return res.status(404).json({ message: 'Article not found' });
     }
     
-    article.comments.push({
+    const comment = {
+      id: uuidv4(),
       user: req.user.id,
-      content: req.body.content
-    });
+      content: req.body.content,
+      createdAt: new Date()
+    };
     
-    await article.save();
+    article.comments.push(comment);
+    articles.set(article.id, article);
     
-    res.status(201).json({ message: 'Comment added successfully' });
+    res.status(201).json({ message: 'Comment added successfully', comment });
   } catch (error) {
     logger.error('Add comment error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -914,14 +981,18 @@ app.post('/api/contact', [
   try {
     const { name, email, subject, message } = req.body;
     
-    const contactMessage = new Message({
+    const contactMessage = {
+      id: uuidv4(),
       name,
       email,
       subject,
-      message
-    });
+      message,
+      read: false,
+      replied: false,
+      createdAt: new Date()
+    };
     
-    await contactMessage.save();
+    messages.set(contactMessage.id, contactMessage);
     
     // Kirim email notifikasi (jika transporter dikonfigurasi)
     if (transporter) {
@@ -981,18 +1052,22 @@ app.post('/api/chat', [
     const actualSessionId = sessionId || userIp;
     
     // Get or create session
-    let chatSession = await ChatHistory.findOne({ sessionId: actualSessionId });
+    let chatSession = chatSessions.get(actualSessionId);
     if (!chatSession) {
-      chatSession = new ChatHistory({
+      chatSession = {
         sessionId: actualSessionId,
-        messages: []
-      });
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      chatSessions.set(actualSessionId, chatSession);
     }
     
     // Save user message
     chatSession.messages.push({
       role: 'user',
-      content: message
+      content: message,
+      timestamp: new Date()
     });
     
     // Call AI API
@@ -1019,11 +1094,16 @@ app.post('/api/chat', [
       logger.error('AI API error:', apiError.message);
       // Fallback responses
       const fallbackResponses = [
-        "Menarik! Ceritakan lebih lanjut.",
+        "Menarik! Ceritakan lebih lanjut tentang itu.",
         "Saya mengerti. Ada yang bisa saya bantu lagi?",
         "Terima kasih telah bertanya. Silakan jelaskan lebih detail.",
         "Hmm, saya perlu memikirkan itu. Bisa Anda jelaskan ulang?",
-        "Maaf, saya sedang mengalami gangguan koneksi. Coba lagi nanti ya."
+        "Maaf, saya sedang mengalami gangguan koneksi. Coba lagi nanti ya.",
+        "Wah, topik yang menarik! Apa pendapat Anda tentang hal ini?",
+        "Saya ingin tahu lebih banyak. Bisa beri contoh?",
+        "Oke, saya catat. Pertanyaan bagus!",
+        "Menurut saya itu ide yang bagus. Bagaimana dengan Anda?",
+        "Saya akan pelajari dulu. Ada pertanyaan lain?"
       ];
       aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
     }
@@ -1031,11 +1111,12 @@ app.post('/api/chat', [
     // Save AI response
     chatSession.messages.push({
       role: 'assistant',
-      content: aiResponse
+      content: aiResponse,
+      timestamp: new Date()
     });
     
     chatSession.updatedAt = new Date();
-    await chatSession.save();
+    chatSessions.set(actualSessionId, chatSession);
     
     res.json({
       message: aiResponse,
@@ -1049,11 +1130,9 @@ app.post('/api/chat', [
   }
 });
 
-app.get('/api/chat/history/:sessionId', async (req, res) => {
+app.get('/api/chat/history/:sessionId', (req, res) => {
   try {
-    const chatSession = await ChatHistory.findOne({ 
-      sessionId: req.params.sessionId 
-    });
+    const chatSession = chatSessions.get(req.params.sessionId);
     
     if (!chatSession) {
       return res.json({ messages: [] });
@@ -1067,16 +1146,15 @@ app.get('/api/chat/history/:sessionId', async (req, res) => {
 });
 
 // User Profile Routes
-app.get('/api/user/profile', authenticateToken, async (req, res) => {
+app.get('/api/user/profile', authenticateToken, (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .select('-password');
-    
+    const user = users.get(req.user.id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    res.json(user);
+    const { password, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
   } catch (error) {
     logger.error('Get profile error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -1088,33 +1166,28 @@ app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'),
     const updateData = JSON.parse(req.body.data || '{}');
     const file = req.file;
     
-    if (file) {
-      try {
-        if (cloudinary.config().cloud_name) {
-          const result = await cloudinary.uploader.upload(file.path, {
-            folder: 'profiles',
-            transformation: [
-              { width: 400, height: 400, crop: 'fill' },
-              { quality: 'auto' }
-            ]
-          });
-          updateData.profilePicture = result.secure_url;
-        } else {
-          updateData.profilePicture = `/uploads/${file.filename}`;
-        }
-        fs.unlinkSync(file.path);
-      } catch (uploadError) {
-        logger.error('Upload error:', uploadError);
-      }
+    const user = users.get(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
     
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { ...updateData },
-      { new: true }
-    ).select('-password');
+    if (file) {
+      updateData.profilePicture = `/uploads/${file.filename}`;
+    }
     
-    res.json(user);
+    const updatedUser = {
+      ...user,
+      ...updateData,
+      socialLinks: {
+        ...user.socialLinks,
+        ...(updateData.socialLinks || {})
+      }
+    };
+    
+    users.set(req.user.id, updatedUser);
+    
+    const { password, ...userWithoutPassword } = updatedUser;
+    res.json(userWithoutPassword);
   } catch (error) {
     logger.error('Update profile error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -1122,26 +1195,28 @@ app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'),
 });
 
 // Admin Routes
-app.get('/api/admin/messages', authenticateToken, isAdmin, async (req, res) => {
+app.get('/api/admin/messages', authenticateToken, isAdmin, (req, res) => {
   try {
     const { read, limit = 20, page = 1 } = req.query;
-    const query = {};
     
-    if (read === 'true') query.read = true;
-    if (read === 'false') query.read = false;
+    let messageList = Array.from(messages.values());
     
-    const messages = await Message.find(query)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+    if (read === 'true') {
+      messageList = messageList.filter(m => m.read);
+    } else if (read === 'false') {
+      messageList = messageList.filter(m => !m.read);
+    }
     
-    const total = await Message.countDocuments(query);
+    messageList.sort((a, b) => b.createdAt - a.createdAt);
+    
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedMessages = messageList.slice(start, start + parseInt(limit));
     
     res.json({
-      messages,
-      total,
+      messages: paginatedMessages,
+      total: messageList.length,
       page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      totalPages: Math.ceil(messageList.length / parseInt(limit))
     });
   } catch (error) {
     logger.error('Get messages error:', error);
@@ -1149,17 +1224,15 @@ app.get('/api/admin/messages', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/admin/messages/:id/read', authenticateToken, isAdmin, async (req, res) => {
+app.put('/api/admin/messages/:id/read', authenticateToken, isAdmin, (req, res) => {
   try {
-    const message = await Message.findByIdAndUpdate(
-      req.params.id,
-      { read: true },
-      { new: true }
-    );
-    
+    const message = messages.get(req.params.id);
     if (!message) {
       return res.status(404).json({ message: 'Message not found' });
     }
+    
+    message.read = true;
+    messages.set(req.params.id, message);
     
     res.json(message);
   } catch (error) {
@@ -1168,49 +1241,51 @@ app.put('/api/admin/messages/:id/read', authenticateToken, isAdmin, async (req, 
   }
 });
 
-app.get('/api/admin/analytics', authenticateToken, isAdmin, async (req, res) => {
+app.get('/api/admin/analytics', authenticateToken, isAdmin, (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const query = {};
+    
+    let filteredAnalytics = [...analytics];
     
     if (startDate && endDate) {
-      query.timestamp = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      filteredAnalytics = analytics.filter(a => 
+        a.timestamp >= start && a.timestamp <= end
+      );
     }
     
-    const [pageViews, dailyVisits, uniqueVisitors, totalVisits] = await Promise.all([
-      Analytics.aggregate([
-        { $match: query },
-        { $group: { _id: '$page', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 20 }
-      ]),
-      Analytics.aggregate([
-        { $match: query },
-        {
-          $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { '_id': 1 } },
-        { $limit: 30 }
-      ]),
-      Analytics.aggregate([
-        { $match: query },
-        { $group: { _id: '$ip' } },
-        { $count: 'total' }
-      ]),
-      Analytics.countDocuments(query)
-    ]);
+    // Page views
+    const pageViews = {};
+    filteredAnalytics.forEach(a => {
+      pageViews[a.page] = (pageViews[a.page] || 0) + 1;
+    });
+    
+    const pageViewsArray = Object.entries(pageViews)
+      .map(([page, count]) => ({ _id: page, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
+    
+    // Daily visits
+    const dailyVisits = {};
+    filteredAnalytics.forEach(a => {
+      const date = a.timestamp.toISOString().split('T')[0];
+      dailyVisits[date] = (dailyVisits[date] || 0) + 1;
+    });
+    
+    const dailyVisitsArray = Object.entries(dailyVisits)
+      .map(([date, count]) => ({ _id: date, count }))
+      .sort((a, b) => a._id.localeCompare(b._id))
+      .slice(0, 30);
+    
+    // Unique visitors
+    const uniqueIPs = new Set(filteredAnalytics.map(a => a.ip));
     
     res.json({
-      pageViews,
-      dailyVisits,
-      uniqueVisitors: uniqueVisitors[0]?.total || 0,
-      totalVisits
+      pageViews: pageViewsArray,
+      dailyVisits: dailyVisitsArray,
+      uniqueVisitors: uniqueIPs.size,
+      totalVisits: filteredAnalytics.length
     });
   } catch (error) {
     logger.error('Get analytics error:', error);
@@ -1264,7 +1339,12 @@ io.on('connection', (socket) => {
           "Menarik! Bisa dijelaskan lebih detail?",
           "Hmm, saya perlu waktu untuk memikirkan itu.",
           "Terima kasih atas masukannya!",
-          "Maaf, saya sedang gangguan. Coba lagi nanti ya."
+          "Maaf, saya sedang gangguan. Coba lagi nanti ya.",
+          "Wah, topik yang seru! Lanjutkan...",
+          "Saya suka pertanyaan ini!",
+          "Oke, saya dengerin. Ada lagi?",
+          "Menurut saya itu ide yang kreatif!",
+          "Saya akan catat dulu. Silakan lanjutkan."
         ];
         aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
       }
@@ -1339,7 +1419,14 @@ const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on http://localhost:${PORT}`);
   logger.info(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`💾 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+  logger.info(`💾 Storage: In-Memory (RAM)`);
+  logger.info(`📊 Stats:
+    - Users: ${users.size}
+    - Projects: ${projects.size}
+    - Articles: ${articles.size}
+    - Messages: ${messages.size}
+    - Chat Sessions: ${chatSessions.size}
+  `);
 });
 
 // Graceful shutdown
@@ -1359,9 +1446,18 @@ async function gracefulShutdown() {
       logger.info('HTTP server closed');
     });
     
-    await mongoose.connection.close();
-    logger.info('MongoDB connection closed');
+    // Clear all maps
+    users.clear();
+    usersByEmail.clear();
+    usersByUsername.clear();
+    projects.clear();
+    articles.clear();
+    articlesBySlug.clear();
+    messages.clear();
+    chatSessions.clear();
+    analytics.length = 0;
     
+    logger.info('All in-memory data cleared');
     process.exit(0);
   } catch (error) {
     logger.error('Error during graceful shutdown:', error);
