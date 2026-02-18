@@ -12,14 +12,11 @@ import { body, validationResult } from 'express-validator';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import nodemailer from 'nodemailer';
-import redis from 'redis';
-import Queue from 'bull';
 import winston from 'winston';
 import axios from 'axios';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { EventEmitter } from 'events';
 
 dotenv.config();
 
@@ -58,189 +55,9 @@ const logger = winston.createLogger({
   ]
 });
 
-// =====================================================
-// REDIS CLOUD CONNECTION dengan ERROR HANDLING
-// =====================================================
-
-let redisClient;
-let emailQueue;
-
-async function initializeRedis() {
-  try {
-    const redisUrl = process.env.REDIS_URL;
-    
-    if (!redisUrl) {
-      logger.warn('⚠️ REDIS_URL tidak ditemukan di file .env, menggunakan in-memory fallback');
-      return createFallbackServices();
-    }
-
-    logger.info('🔄 Menghubungkan ke Redis Cloud...');
-    
-    // Parse URL untuk log host
-    try {
-      const url = new URL(redisUrl);
-      logger.info(`📍 Host: ${url.hostname}:${url.port || 6379}`);
-    } catch (e) {
-      logger.warn('⚠️ Invalid Redis URL format');
-    }
-
-    redisClient = redis.createClient({
-      url: redisUrl,
-      socket: {
-        reconnectStrategy: (retries) => {
-          if (retries > 5) {
-            logger.error('Too many retries to Redis Cloud, switching to fallback');
-            return new Error('Too many retries');
-          }
-          const delay = Math.min(retries * 100, 3000);
-          logger.info(`Reconnecting to Redis in ${delay}ms... (attempt ${retries}/5)`);
-          return delay;
-        },
-        connectTimeout: 5000, // 5 seconds
-        keepAlive: 3000
-      }
-    });
-
-    redisClient.on('connect', () => {
-      logger.info('✅ Connected to Redis Cloud');
-    });
-
-    redisClient.on('ready', () => {
-      logger.info('✅ Redis Cloud ready to use');
-    });
-
-    redisClient.on('error', (err) => {
-      logger.error('❌ Redis Cloud Error:', err.message);
-    });
-
-    redisClient.on('end', () => {
-      logger.warn('⚠️ Redis Cloud connection ended');
-    });
-
-    // Set timeout untuk koneksi
-    const connectPromise = redisClient.connect();
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Redis connection timeout')), 5000)
-    );
-
-    await Promise.race([connectPromise, timeoutPromise]);
-    
-    // Test connection
-    await redisClient.ping();
-    logger.info('🏓 Redis PING successful');
-
-    // Initialize queue with Redis
-    emailQueue = new Queue('email', redisUrl, {
-      redis: {
-        url: redisUrl,
-        connectTimeout: 5000
-      },
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 1000
-        }
-      }
-    });
-
-    logger.info('✅ Bull queue initialized with Redis Cloud');
-    return { redisClient, emailQueue };
-
-  } catch (error) {
-    logger.error('❌ Gagal connect ke Redis Cloud:', error.message);
-    logger.info('⚠️ Menggunakan in-memory fallback...');
-    return createFallbackServices();
-  }
-}
-
-function createFallbackServices() {
-  // Fallback: in-memory cache
-  redisClient = null;
-  
-  // Fallback: in-memory queue menggunakan EventEmitter
-  const memoryQueue = new EventEmitter();
-  
-  // Simulasi method queue
-  memoryQueue.add = async (data) => {
-    logger.info('📨 In-memory queue job added (fallback)');
-    // Process job in next tick
-    process.nextTick(() => {
-      if (memoryQueue.process) {
-        memoryQueue.process({ data });
-      }
-    });
-    return { id: Date.now(), data };
-  };
-  
-  memoryQueue.process = async (job) => {
-    logger.info('⚙️ Processing in-memory job:', job.data);
-    // Simulate processing
-    return { success: true };
-  };
-  
-  emailQueue = memoryQueue;
-  
-  logger.info('✅ In-memory fallback services initialized');
-  return { redisClient, emailQueue };
-}
-
-// In-memory cache fallback
-const memoryCache = new Map();
-const CACHE_TTL = 3600 * 1000; // 1 hour in milliseconds
-
-// Cache helper functions
-async function getCache(key) {
-  if (redisClient && redisClient.isReady) {
-    try {
-      return await redisClient.get(key);
-    } catch (error) {
-      logger.error(`Redis get error for key ${key}:`, error.message);
-      return getMemoryCache(key);
-    }
-  } else {
-    return getMemoryCache(key);
-  }
-}
-
-function getMemoryCache(key) {
-  const cached = memoryCache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.value;
-  }
-  memoryCache.delete(key);
-  return null;
-}
-
-async function setCache(key, value, ttl = 3600) {
-  if (redisClient && redisClient.isReady) {
-    try {
-      await redisClient.setEx(key, ttl, value);
-    } catch (error) {
-      logger.error(`Redis set error for key ${key}:`, error.message);
-      setMemoryCache(key, value);
-    }
-  } else {
-    setMemoryCache(key, value);
-  }
-}
-
-function setMemoryCache(key, value) {
-  memoryCache.set(key, {
-    value,
-    timestamp: Date.now()
-  });
-  
-  // Auto cleanup after TTL
-  setTimeout(() => {
-    memoryCache.delete(key);
-  }, CACHE_TTL);
-}
-
-// Initialize Redis
-const { redisClient: redisClientInstance, emailQueue: emailQueueInstance } = await initializeRedis();
-redisClient = redisClientInstance;
-emailQueue = emailQueueInstance;
+// Simple in-memory cache (instead of Redis)
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
 // Cloudinary config
 if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
@@ -251,7 +68,7 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
   });
   logger.info('✅ Cloudinary configured');
 } else {
-  logger.warn('⚠️ Cloudinary credentials missing, file uploads will be limited');
+  logger.warn('⚠️ Cloudinary credentials missing, file uploads will be saved locally only');
 }
 
 // Multer config for file uploads
@@ -316,7 +133,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
-  profilePicture: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/v1/default-profile.png' },
+  profilePicture: { type: String, default: '' },
   bio: { type: String, default: '' },
   socialLinks: {
     github: { type: String, default: '' },
@@ -581,7 +398,7 @@ async function createAdminUser() {
         email: 'admin@teguh.dev',
         password: hashedPassword,
         role: 'admin',
-        profilePicture: 'https://res.cloudinary.com/demo/image/upload/v1/default-profile.png',
+        profilePicture: '',
         bio: 'Administrator of Teguh Portfolio',
         socialLinks: {
           github: 'https://github.com/teguh',
@@ -701,36 +518,6 @@ async function createSampleData() {
 await connectToMongoDB();
 
 // =====================================================
-// QUEUE PROCESSORS
-// =====================================================
-
-if (emailQueue && emailQueue.process) {
-  emailQueue.process(async (job) => {
-    const { to, subject, html } = job.data;
-    
-    if (!transporter) {
-      logger.warn('⚠️ Email transporter not configured, logging email instead');
-      logger.info('📧 Email would be sent:', { to, subject });
-      return { success: true, simulated: true };
-    }
-    
-    try {
-      await transporter.sendMail({
-        from: `"Muhammad Teguh Marwin" <${process.env.EMAIL_USER}>`,
-        to,
-        subject,
-        html
-      });
-      logger.info(`✅ Email sent to ${to}`);
-      return { success: true };
-    } catch (error) {
-      logger.error('❌ Email sending failed:', error.message);
-      throw error;
-    }
-  });
-}
-
-// =====================================================
 // API ROUTES
 // =====================================================
 
@@ -740,14 +527,774 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     services: {
-      mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      redis: redisClient?.isReady ? 'connected' : (redisClient ? 'connecting' : 'fallback'),
-      queue: emailQueue ? 'initialized' : 'fallback'
+      mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     }
   });
 });
 
-// ... (sisa kode API routes sama seperti sebelumnya, mulai dari Auth Routes sampai akhir)
+// Auth Routes
+app.post('/api/auth/register', [
+  body('username').isLength({ min: 3 }).trim().escape(),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 })
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  
+  try {
+    const { username, email, password } = req.body;
+    
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({
+      username,
+      email,
+      password: hashedPassword
+    });
+    
+    await user.save();
+    
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.status(201).json({
+      message: 'User created successfully',
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture
+      }
+    });
+  } catch (error) {
+    logger.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/api/auth/login', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  
+  try {
+    const { email, password } = req.body;
+    
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    
+    user.lastLogin = new Date();
+    await user.save();
+    
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture
+      }
+    });
+  } catch (error) {
+    logger.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Projects Routes
+app.get('/api/projects', async (req, res) => {
+  try {
+    const { category, featured, limit = 10, page = 1 } = req.query;
+    const query = {};
+    
+    if (category) query.category = category;
+    if (featured === 'true') query.featured = true;
+    
+    const projects = await Project.find(query)
+      .sort({ featured: -1, createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const total = await Project.countDocuments(query);
+    
+    res.json({
+      projects,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    logger.error('Get projects error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.get('/api/projects/:id', async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+    
+    project.views += 1;
+    await project.save();
+    
+    res.json(project);
+  } catch (error) {
+    logger.error('Get project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/api/projects', authenticateToken, isAdmin, upload.array('images', 5), async (req, res) => {
+  try {
+    const projectData = JSON.parse(req.body.data);
+    const files = req.files || [];
+    
+    // Upload images to Cloudinary (jika dikonfigurasi)
+    const imageUrls = [];
+    for (const file of files) {
+      try {
+        if (cloudinary.config().cloud_name) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'projects',
+            transformation: [
+              { width: 1200, height: 630, crop: 'fill' },
+              { quality: 'auto' }
+            ]
+          });
+          imageUrls.push(result.secure_url);
+        } else {
+          // Simpan lokal jika cloudinary tidak dikonfigurasi
+          const fileUrl = `/uploads/${file.filename}`;
+          imageUrls.push(fileUrl);
+        }
+        // Delete temp file
+        fs.unlinkSync(file.path);
+      } catch (uploadError) {
+        logger.error('Upload error:', uploadError);
+      }
+    }
+    
+    const project = new Project({
+      ...projectData,
+      image: imageUrls[0] || projectData.image || '',
+      images: imageUrls.length > 0 ? imageUrls : (projectData.images || [])
+    });
+    
+    await project.save();
+    
+    res.status(201).json(project);
+  } catch (error) {
+    logger.error('Create project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.put('/api/projects/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const project = await Project.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, updatedAt: new Date() },
+      { new: true }
+    );
+    
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+    
+    res.json(project);
+  } catch (error) {
+    logger.error('Update project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.delete('/api/projects/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const project = await Project.findByIdAndDelete(req.params.id);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+    
+    res.json({ message: 'Project deleted successfully' });
+  } catch (error) {
+    logger.error('Delete project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/api/projects/:id/like', authenticateToken, async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+    
+    project.likes += 1;
+    await project.save();
+    
+    res.json({ likes: project.likes });
+  } catch (error) {
+    logger.error('Like project error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Articles Routes
+app.get('/api/articles', async (req, res) => {
+  try {
+    const { tag, category, limit = 10, page = 1 } = req.query;
+    const query = { published: true };
+    
+    if (tag) query.tags = tag;
+    if (category) query.category = category;
+    
+    const articles = await Article.find(query)
+      .populate('author', 'username profilePicture')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const total = await Article.countDocuments(query);
+    
+    res.json({
+      articles,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    logger.error('Get articles error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.get('/api/articles/:slug', async (req, res) => {
+  try {
+    const article = await Article.findOne({ slug: req.params.slug })
+      .populate('author', 'username profilePicture bio');
+    
+    if (!article) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
+    
+    article.views += 1;
+    await article.save();
+    
+    res.json(article);
+  } catch (error) {
+    logger.error('Get article error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'), async (req, res) => {
+  try {
+    const articleData = JSON.parse(req.body.data);
+    const file = req.file;
+    
+    let coverImageUrl = '';
+    if (file) {
+      try {
+        if (cloudinary.config().cloud_name) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'articles',
+            transformation: [
+              { width: 1200, height: 630, crop: 'fill' },
+              { quality: 'auto' }
+            ]
+          });
+          coverImageUrl = result.secure_url;
+        } else {
+          coverImageUrl = `/uploads/${file.filename}`;
+        }
+        fs.unlinkSync(file.path);
+      } catch (uploadError) {
+        logger.error('Upload error:', uploadError);
+      }
+    }
+    
+    const slug = articleData.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    
+    const article = new Article({
+      ...articleData,
+      coverImage: coverImageUrl || articleData.coverImage,
+      author: req.user.id,
+      slug
+    });
+    
+    // Calculate read time
+    const wordsPerMinute = 200;
+    const wordCount = article.content.split(/\s+/).length;
+    article.readTime = Math.ceil(wordCount / wordsPerMinute);
+    
+    await article.save();
+    
+    res.status(201).json(article);
+  } catch (error) {
+    logger.error('Create article error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.post('/api/articles/:id/comments', authenticateToken, [
+  body('content').isLength({ min: 1, max: 500 }).trim().escape()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  
+  try {
+    const article = await Article.findById(req.params.id);
+    if (!article) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
+    
+    article.comments.push({
+      user: req.user.id,
+      content: req.body.content
+    });
+    
+    await article.save();
+    
+    res.status(201).json({ message: 'Comment added successfully' });
+  } catch (error) {
+    logger.error('Add comment error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Contact Routes
+app.post('/api/contact', [
+  body('name').isLength({ min: 2 }).trim().escape(),
+  body('email').isEmail().normalizeEmail(),
+  body('subject').isLength({ min: 3 }).trim().escape(),
+  body('message').isLength({ min: 10 }).trim().escape()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  
+  try {
+    const { name, email, subject, message } = req.body;
+    
+    const contactMessage = new Message({
+      name,
+      email,
+      subject,
+      message
+    });
+    
+    await contactMessage.save();
+    
+    // Kirim email notifikasi (jika transporter dikonfigurasi)
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from: `"Muhammad Teguh Marwin" <${process.env.EMAIL_USER}>`,
+          to: process.env.EMAIL_USER,
+          subject: `New Contact Form: ${subject}`,
+          html: `
+            <h3>New Contact Message</h3>
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+            <p><strong>Message:</strong></p>
+            <p>${message}</p>
+          `
+        });
+        
+        // Send auto-reply
+        await transporter.sendMail({
+          from: `"Muhammad Teguh Marwin" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: 'Thank you for contacting Muhammad Teguh Marwin',
+          html: `
+            <h3>Thank you for reaching out!</h3>
+            <p>Dear ${name},</p>
+            <p>Thank you for contacting me. I have received your message and will get back to you as soon as possible.</p>
+            <p>Best regards,<br>Muhammad Teguh Marwin</p>
+          `
+        });
+      } catch (emailError) {
+        logger.error('Email sending failed:', emailError.message);
+      }
+    } else {
+      logger.info('Email would be sent:', { to: email, subject });
+    }
+    
+    res.status(201).json({ message: 'Message sent successfully' });
+  } catch (error) {
+    logger.error('Contact form error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Chat Routes
+app.post('/api/chat', [
+  body('message').isLength({ min: 1 }).trim().escape()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  
+  try {
+    const { message, sessionId } = req.body;
+    const userIp = req.ip || req.socket.remoteAddress;
+    const actualSessionId = sessionId || userIp;
+    
+    // Get or create session
+    let chatSession = await ChatHistory.findOne({ sessionId: actualSessionId });
+    if (!chatSession) {
+      chatSession = new ChatHistory({
+        sessionId: actualSessionId,
+        messages: []
+      });
+    }
+    
+    // Save user message
+    chatSession.messages.push({
+      role: 'user',
+      content: message
+    });
+    
+    // Call AI API
+    let aiResponse = 'Maaf, layanan AI sedang bermasalah. Silakan coba lagi nanti.';
+    
+    try {
+      const response = await axios.get(process.env.ANABOT_API_URL, {
+        params: {
+          prompt: message,
+          search_enabled: false,
+          thinking_enabled: false,
+          imageUrl: '',
+          apikey: process.env.API_KEY
+        },
+        timeout: 10000 // 10 seconds timeout
+      });
+      
+      if (response.data?.result?.message) {
+        aiResponse = response.data.result.message;
+      } else if (response.data?.response) {
+        aiResponse = response.data.response;
+      }
+    } catch (apiError) {
+      logger.error('AI API error:', apiError.message);
+      // Fallback responses
+      const fallbackResponses = [
+        "Menarik! Ceritakan lebih lanjut.",
+        "Saya mengerti. Ada yang bisa saya bantu lagi?",
+        "Terima kasih telah bertanya. Silakan jelaskan lebih detail.",
+        "Hmm, saya perlu memikirkan itu. Bisa Anda jelaskan ulang?",
+        "Maaf, saya sedang mengalami gangguan koneksi. Coba lagi nanti ya."
+      ];
+      aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+    }
+    
+    // Save AI response
+    chatSession.messages.push({
+      role: 'assistant',
+      content: aiResponse
+    });
+    
+    chatSession.updatedAt = new Date();
+    await chatSession.save();
+    
+    res.json({
+      message: aiResponse,
+      sessionId: chatSession.sessionId
+    });
+  } catch (error) {
+    logger.error('Chat API error:', error);
+    res.status(500).json({ 
+      message: 'Maaf, layanan chat sedang bermasalah. Silakan coba lagi nanti.' 
+    });
+  }
+});
+
+app.get('/api/chat/history/:sessionId', async (req, res) => {
+  try {
+    const chatSession = await ChatHistory.findOne({ 
+      sessionId: req.params.sessionId 
+    });
+    
+    if (!chatSession) {
+      return res.json({ messages: [] });
+    }
+    
+    res.json({ messages: chatSession.messages });
+  } catch (error) {
+    logger.error('Get chat history error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// User Profile Routes
+app.get('/api/user/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    logger.error('Get profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'), async (req, res) => {
+  try {
+    const updateData = JSON.parse(req.body.data || '{}');
+    const file = req.file;
+    
+    if (file) {
+      try {
+        if (cloudinary.config().cloud_name) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'profiles',
+            transformation: [
+              { width: 400, height: 400, crop: 'fill' },
+              { quality: 'auto' }
+            ]
+          });
+          updateData.profilePicture = result.secure_url;
+        } else {
+          updateData.profilePicture = `/uploads/${file.filename}`;
+        }
+        fs.unlinkSync(file.path);
+      } catch (uploadError) {
+        logger.error('Upload error:', uploadError);
+      }
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { ...updateData },
+      { new: true }
+    ).select('-password');
+    
+    res.json(user);
+  } catch (error) {
+    logger.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Admin Routes
+app.get('/api/admin/messages', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { read, limit = 20, page = 1 } = req.query;
+    const query = {};
+    
+    if (read === 'true') query.read = true;
+    if (read === 'false') query.read = false;
+    
+    const messages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const total = await Message.countDocuments(query);
+    
+    res.json({
+      messages,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    logger.error('Get messages error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.put('/api/admin/messages/:id/read', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const message = await Message.findByIdAndUpdate(
+      req.params.id,
+      { read: true },
+      { new: true }
+    );
+    
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+    
+    res.json(message);
+  } catch (error) {
+    logger.error('Mark message read error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+app.get('/api/admin/analytics', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const query = {};
+    
+    if (startDate && endDate) {
+      query.timestamp = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    const [pageViews, dailyVisits, uniqueVisitors, totalVisits] = await Promise.all([
+      Analytics.aggregate([
+        { $match: query },
+        { $group: { _id: '$page', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 20 }
+      ]),
+      Analytics.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id': 1 } },
+        { $limit: 30 }
+      ]),
+      Analytics.aggregate([
+        { $match: query },
+        { $group: { _id: '$ip' } },
+        { $count: 'total' }
+      ]),
+      Analytics.countDocuments(query)
+    ]);
+    
+    res.json({
+      pageViews,
+      dailyVisits,
+      uniqueVisitors: uniqueVisitors[0]?.total || 0,
+      totalVisits
+    });
+  } catch (error) {
+    logger.error('Get analytics error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// =====================================================
+// SOCKET.IO CONNECTIONS
+// =====================================================
+
+io.on('connection', (socket) => {
+  logger.info(`🟢 New socket connection: ${socket.id}`);
+  
+  socket.on('join', (data) => {
+    const room = data.room || 'general';
+    socket.join(room);
+    logger.info(`Socket ${socket.id} joined room ${room}`);
+    
+    socket.emit('joined', { room, message: `Joined room: ${room}` });
+  });
+  
+  socket.on('chat message', async (data) => {
+    try {
+      const room = data.room || 'general';
+      const message = data.message;
+      
+      if (!message || message.trim().length === 0) {
+        return;
+      }
+      
+      // Process message with AI
+      let aiResponse = 'Maaf, terjadi kesalahan.';
+      
+      try {
+        const response = await axios.get(process.env.ANABOT_API_URL, {
+          params: {
+            prompt: message,
+            apikey: process.env.API_KEY
+          },
+          timeout: 5000
+        });
+        
+        aiResponse = response.data?.result?.message || 
+                    response.data?.response || 
+                    'Maaf, tidak bisa memproses pesan Anda.';
+      } catch (apiError) {
+        logger.error('Socket AI API error:', apiError.message);
+        const fallbackResponses = [
+          "Saya sedang belajar. Ceritakan lebih lanjut!",
+          "Menarik! Bisa dijelaskan lebih detail?",
+          "Hmm, saya perlu waktu untuk memikirkan itu.",
+          "Terima kasih atas masukannya!",
+          "Maaf, saya sedang gangguan. Coba lagi nanti ya."
+        ];
+        aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+      }
+      
+      io.to(room).emit('chat response', {
+        user: data.user || 'Anonymous',
+        message: message,
+        response: aiResponse,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      logger.error('Socket chat error:', error);
+      socket.emit('chat response', {
+        error: 'Maaf, terjadi kesalahan pada server.'
+      });
+    }
+  });
+  
+  socket.on('typing', (data) => {
+    socket.to(data.room || 'general').emit('typing', {
+      user: data.user || 'Someone',
+      isTyping: data.isTyping
+    });
+  });
+  
+  socket.on('disconnect', () => {
+    logger.info(`🔴 Socket disconnected: ${socket.id}`);
+  });
+});
 
 // =====================================================
 // STATIC FILES AND FRONTEND ROUTE
@@ -793,7 +1340,6 @@ httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on http://localhost:${PORT}`);
   logger.info(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.info(`💾 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
-  logger.info(`📦 Redis: ${redisClient?.isReady ? 'Connected' : (redisClient ? 'Connecting' : 'Fallback')}`);
 });
 
 // Graceful shutdown
@@ -815,11 +1361,6 @@ async function gracefulShutdown() {
     
     await mongoose.connection.close();
     logger.info('MongoDB connection closed');
-    
-    if (redisClient && redisClient.isReady) {
-      await redisClient.quit();
-      logger.info('Redis connection closed');
-    }
     
     process.exit(0);
   } catch (error) {
