@@ -55,29 +55,29 @@ const logger = winston.createLogger({
 });
 
 // =====================================================
-// IN-MEMORY DATABASE (SEMUA DATA DISIMPAN DI RAM)
+// IN-MEMORY DATABASE
 // =====================================================
 
 // Users collection
-const users = new Map(); // key: id, value: user object
-const usersByEmail = new Map(); // key: email, value: user id
-const usersByUsername = new Map(); // key: username, value: user id
+const users = new Map();
+const usersByEmail = new Map();
+const usersByUsername = new Map();
 
 // Projects collection
-const projects = new Map(); // key: id, value: project object
+const projects = new Map();
 
 // Articles collection
-const articles = new Map(); // key: id, value: article object
-const articlesBySlug = new Map(); // key: slug, value: article id
+const articles = new Map();
+const articlesBySlug = new Map();
 
 // Messages collection
-const messages = new Map(); // key: id, value: message object
+const messages = new Map();
 
 // Chat history collection
-const chatSessions = new Map(); // key: sessionId, value: chat session object
+const chatSessions = new Map();
 
 // Analytics collection
-const analytics = []; // array of analytics entries
+const analytics = [];
 
 // =====================================================
 // INITIAL SAMPLE DATA
@@ -144,13 +144,10 @@ async function initializeSampleData() {
       id: uuidv4(),
       title: 'AI-Powered Dashboard',
       description: 'Interactive dashboard with AI insights and real-time analytics',
-      longDescription: 'A comprehensive dashboard that uses machine learning to provide business insights, predict trends, and automate reporting. Built with React and TensorFlow.js.',
+      longDescription: 'A comprehensive dashboard that uses machine learning to provide business insights, predict trends, and automate reporting.',
       image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800',
-      images: [
-        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800',
-        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800'
-      ],
-      technologies: ['React', 'TensorFlow.js', 'Node.js', 'MongoDB', 'Socket.io'],
+      images: ['https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800'],
+      technologies: ['React', 'TensorFlow.js', 'Node.js', 'MongoDB'],
       category: 'web',
       liveUrl: 'https://ai-dashboard.demo.com',
       githubUrl: 'https://github.com/teguh/ai-dashboard',
@@ -164,12 +161,10 @@ async function initializeSampleData() {
       id: uuidv4(),
       title: 'Smart Automation Bot',
       description: 'Telegram bot for task automation and reminders',
-      longDescription: 'An intelligent bot that helps users automate daily tasks, set reminders, and integrate with various APIs including Google Calendar and Trello.',
+      longDescription: 'An intelligent bot that helps users automate daily tasks, set reminders, and integrate with various APIs.',
       image: 'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800',
-      images: [
-        'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800'
-      ],
-      technologies: ['Python', 'Telegraf', 'Redis', 'Docker', 'PostgreSQL'],
+      images: ['https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=800'],
+      technologies: ['Python', 'Telegraf', 'Redis', 'Docker'],
       category: 'automation',
       liveUrl: 'https://t.me/smartauto_bot',
       githubUrl: 'https://github.com/teguh/auto-bot',
@@ -183,12 +178,10 @@ async function initializeSampleData() {
       id: uuidv4(),
       title: 'E-Commerce Platform',
       description: 'Modern e-commerce with AI product recommendations',
-      longDescription: 'Full-featured e-commerce platform with personalized product recommendations based on user behavior and purchase history.',
+      longDescription: 'Full-featured e-commerce platform with personalized product recommendations based on user behavior.',
       image: 'https://images.unsplash.com/photo-1557821552-17105176677c?w=800',
-      images: [
-        'https://images.unsplash.com/photo-1557821552-17105176677c?w=800'
-      ],
-      technologies: ['Next.js', 'Stripe', 'PostgreSQL', 'Prisma', 'Tailwind CSS'],
+      images: ['https://images.unsplash.com/photo-1557821552-17105176677c?w=800'],
+      technologies: ['Next.js', 'Stripe', 'PostgreSQL', 'Prisma'],
       category: 'web',
       liveUrl: 'https://ecommerce.demo.com',
       githubUrl: 'https://github.com/teguh/ecommerce',
@@ -197,25 +190,6 @@ async function initializeSampleData() {
       likes: 234,
       createdAt: new Date('2024-03-10'),
       updatedAt: new Date('2024-03-10')
-    },
-    {
-      id: uuidv4(),
-      title: 'Mobile Weather App',
-      description: 'Cross-platform weather app with beautiful animations',
-      longDescription: 'A mobile application built with React Native that provides real-time weather information with beautiful animations and predictive analytics.',
-      image: 'https://images.unsplash.com/photo-1592210454359-9043f067919b?w=800',
-      images: [
-        'https://images.unsplash.com/photo-1592210454359-9043f067919b?w=800'
-      ],
-      technologies: ['React Native', 'Expo', 'OpenWeather API', 'Redux', 'Lottie'],
-      category: 'mobile',
-      liveUrl: 'https://play.google.com/store/apps/details?id=com.weather.app',
-      githubUrl: 'https://github.com/teguh/weather-app',
-      featured: false,
-      views: 567,
-      likes: 45,
-      createdAt: new Date('2024-04-05'),
-      updatedAt: new Date('2024-04-05')
     }
   ];
 
@@ -230,49 +204,15 @@ async function initializeSampleData() {
       title: 'Getting Started with AI in Web Development',
       slug: 'getting-started-with-ai-in-web-development',
       excerpt: 'Learn how to integrate AI and machine learning into your web applications',
-      content: `# Getting Started with AI in Web Development
-
-Artificial Intelligence is revolutionizing web development. In this article, we'll explore how you can integrate AI capabilities into your web applications.
-
-## Why AI in Web Development?
-
-AI can enhance user experience, automate tasks, and provide valuable insights. From chatbots to recommendation systems, the possibilities are endless.
-
-## Getting Started
-
-1. Choose your AI framework (TensorFlow.js, Brain.js, etc.)
-2. Understand your data requirements
-3. Start with simple models
-4. Iterate and improve
-
-## Example: Building a Simple Chatbot
-
-Here's a basic example using TensorFlow.js:
-
-\`\`\`javascript
-import * as tf from '@tensorflow/tfjs';
-
-// Your chatbot code here
-\`\`\`
-
-## Conclusion
-
-AI is accessible to web developers. Start small and experiment!`,
+      content: `# Getting Started with AI in Web Development\n\nArtificial Intelligence is revolutionizing web development. In this article, we'll explore how you can integrate AI capabilities into your web applications.`,
       coverImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800',
       author: adminId,
-      tags: ['AI', 'Web Development', 'Machine Learning', 'JavaScript'],
+      tags: ['AI', 'Web Development', 'Machine Learning'],
       category: 'AI',
       readTime: 8,
       views: 567,
       likes: 45,
-      comments: [
-        {
-          id: uuidv4(),
-          user: userId,
-          content: 'Great article! Very helpful for beginners.',
-          createdAt: new Date('2024-04-10')
-        }
-      ],
+      comments: [],
       published: true,
       createdAt: new Date('2024-04-01'),
       updatedAt: new Date('2024-04-01')
@@ -282,40 +222,10 @@ AI is accessible to web developers. Start small and experiment!`,
       title: 'Building Scalable Node.js Applications',
       slug: 'building-scalable-nodejs-applications',
       excerpt: 'Best practices for building production-ready Node.js applications',
-      content: `# Building Scalable Node.js Applications
-
-When building Node.js applications for production, scalability should be a primary concern.
-
-## Key Concepts
-
-- Microservices architecture
-- Load balancing
-- Database optimization
-- Caching strategies
-
-## Architecture Patterns
-
-### 1. Monolithic vs Microservices
-
-Choose based on your team size and project requirements.
-
-### 2. Event-Driven Architecture
-
-Use message queues for better scalability.
-
-## Performance Tips
-
-- Use clustering
-- Implement caching
-- Optimize database queries
-- Use CDN for static assets
-
-## Conclusion
-
-Scalability requires planning but pays off in the long run.`,
+      content: `# Building Scalable Node.js Applications\n\nWhen building Node.js applications for production, scalability should be a primary concern.`,
       coverImage: 'https://images.unsplash.com/photo-1516259762381-22954d7d3ad2?w=800',
       author: adminId,
-      tags: ['Node.js', 'Backend', 'Scalability', 'Architecture'],
+      tags: ['Node.js', 'Backend', 'Scalability'],
       category: 'Backend',
       readTime: 12,
       views: 890,
@@ -332,39 +242,10 @@ Scalability requires planning but pays off in the long run.`,
     articlesBySlug.set(article.slug, article.id);
   });
 
-  // Create sample messages
-  const sampleMessages = [
-    {
-      id: uuidv4(),
-      name: 'Budi Santoso',
-      email: 'budi@example.com',
-      subject: 'Project Collaboration',
-      message: 'Hi, I would like to discuss a potential collaboration on an AI project.',
-      read: false,
-      replied: false,
-      createdAt: new Date('2024-04-12')
-    },
-    {
-      id: uuidv4(),
-      name: 'Siti Rahayu',
-      email: 'siti@example.com',
-      subject: 'Job Opportunity',
-      message: 'We have a full-stack developer position that might interest you.',
-      read: true,
-      replied: true,
-      createdAt: new Date('2024-04-10')
-    }
-  ];
-
-  sampleMessages.forEach(message => {
-    messages.set(message.id, message);
-  });
-
   logger.info(`✅ Sample data initialized:
     - Users: ${users.size}
     - Projects: ${projects.size}
     - Articles: ${articles.size}
-    - Messages: ${messages.size}
   `);
 }
 
@@ -375,12 +256,14 @@ await initializeSampleData();
 // MULTER CONFIG FOR FILE UPLOADS
 // =====================================================
 
+// Pastikan folder uploads ada
+const uploadDir = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
@@ -435,8 +318,8 @@ try {
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: { message: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -487,8 +370,7 @@ const isAdmin = (req, res, next) => {
 
 // Analytics middleware
 const trackAnalytics = (req, res, next) => {
-  // Skip untuk static files
-  if (req.path.startsWith('/uploads/') || req.path.includes('.')) {
+  if (req.path.startsWith('/api/') || req.path.includes('.')) {
     return next();
   }
   
@@ -502,7 +384,6 @@ const trackAnalytics = (req, res, next) => {
       timestamp: new Date()
     });
     
-    // Batasi ukuran analytics (simpan 1000 entry terakhir)
     if (analytics.length > 1000) {
       analytics.splice(0, analytics.length - 1000);
     }
@@ -524,8 +405,13 @@ app.use(helmet({
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static('public'));
-app.use('/uploads', express.static('uploads'));
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve uploaded files
+app.use('/uploads', express.static(uploadDir));
+
 app.use(trackAnalytics);
 
 // Apply rate limiting to API routes
@@ -568,7 +454,6 @@ app.post('/api/auth/register', [
   try {
     const { username, email, password } = req.body;
     
-    // Check if user exists
     if (usersByEmail.has(email) || usersByUsername.has(username)) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -678,7 +563,6 @@ app.get('/api/projects', (req, res) => {
     
     let projectList = Array.from(projects.values());
     
-    // Filter
     if (category) {
       projectList = projectList.filter(p => p.category === category);
     }
@@ -686,14 +570,12 @@ app.get('/api/projects', (req, res) => {
       projectList = projectList.filter(p => p.featured);
     }
     
-    // Sort
     projectList.sort((a, b) => {
       if (a.featured && !b.featured) return -1;
       if (!a.featured && b.featured) return 1;
       return b.createdAt - a.createdAt;
     });
     
-    // Paginate
     const start = (parseInt(page) - 1) * parseInt(limit);
     const paginatedProjects = projectList.slice(start, start + parseInt(limit));
     
@@ -726,17 +608,12 @@ app.get('/api/projects/:id', (req, res) => {
   }
 });
 
-app.post('/api/projects', authenticateToken, isAdmin, upload.array('images', 5), async (req, res) => {
+app.post('/api/projects', authenticateToken, isAdmin, upload.array('images', 5), (req, res) => {
   try {
     const projectData = JSON.parse(req.body.data);
     const files = req.files || [];
     
-    // Handle uploaded files
-    const imageUrls = [];
-    for (const file of files) {
-      const fileUrl = `/uploads/${file.filename}`;
-      imageUrls.push(fileUrl);
-    }
+    const imageUrls = files.map(file => `/uploads/${file.filename}`);
     
     const project = {
       id: uuidv4(),
@@ -820,7 +697,6 @@ app.get('/api/articles', (req, res) => {
     let articleList = Array.from(articles.values())
       .filter(a => a.published);
     
-    // Filter
     if (tag) {
       articleList = articleList.filter(a => a.tags.includes(tag));
     }
@@ -828,14 +704,11 @@ app.get('/api/articles', (req, res) => {
       articleList = articleList.filter(a => a.category === category);
     }
     
-    // Sort
     articleList.sort((a, b) => b.createdAt - a.createdAt);
     
-    // Paginate
     const start = (parseInt(page) - 1) * parseInt(limit);
     const paginatedArticles = articleList.slice(start, start + parseInt(limit));
     
-    // Add author info
     const articlesWithAuthor = paginatedArticles.map(article => {
       const author = users.get(article.author);
       return {
@@ -871,7 +744,6 @@ app.get('/api/articles/:slug', (req, res) => {
     article.views += 1;
     articles.set(articleId, article);
     
-    // Add author info
     const author = users.get(article.author);
     const articleWithAuthor = {
       ...article,
@@ -890,7 +762,7 @@ app.get('/api/articles/:slug', (req, res) => {
   }
 });
 
-app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'), async (req, res) => {
+app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'), (req, res) => {
   try {
     const articleData = JSON.parse(req.body.data);
     const file = req.file;
@@ -905,7 +777,6 @@ app.post('/api/articles', authenticateToken, isAdmin, upload.single('coverImage'
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
     
-    // Calculate read time
     const wordsPerMinute = 200;
     const wordCount = articleData.content.split(/\s+/).length;
     const readTime = Math.ceil(wordCount / wordsPerMinute);
@@ -994,7 +865,6 @@ app.post('/api/contact', [
     
     messages.set(contactMessage.id, contactMessage);
     
-    // Kirim email notifikasi (jika transporter dikonfigurasi)
     if (transporter) {
       try {
         await transporter.sendMail({
@@ -1011,7 +881,6 @@ app.post('/api/contact', [
           `
         });
         
-        // Send auto-reply
         await transporter.sendMail({
           from: `"Muhammad Teguh Marwin" <${process.env.EMAIL_USER}>`,
           to: email,
@@ -1051,7 +920,6 @@ app.post('/api/chat', [
     const userIp = req.ip || req.socket.remoteAddress;
     const actualSessionId = sessionId || userIp;
     
-    // Get or create session
     let chatSession = chatSessions.get(actualSessionId);
     if (!chatSession) {
       chatSession = {
@@ -1063,14 +931,12 @@ app.post('/api/chat', [
       chatSessions.set(actualSessionId, chatSession);
     }
     
-    // Save user message
     chatSession.messages.push({
       role: 'user',
       content: message,
       timestamp: new Date()
     });
     
-    // Call AI API
     let aiResponse = 'Maaf, layanan AI sedang bermasalah. Silakan coba lagi nanti.';
     
     try {
@@ -1082,7 +948,7 @@ app.post('/api/chat', [
           imageUrl: '',
           apikey: process.env.API_KEY
         },
-        timeout: 10000 // 10 seconds timeout
+        timeout: 10000
       });
       
       if (response.data?.result?.message) {
@@ -1092,23 +958,16 @@ app.post('/api/chat', [
       }
     } catch (apiError) {
       logger.error('AI API error:', apiError.message);
-      // Fallback responses
       const fallbackResponses = [
         "Menarik! Ceritakan lebih lanjut tentang itu.",
         "Saya mengerti. Ada yang bisa saya bantu lagi?",
         "Terima kasih telah bertanya. Silakan jelaskan lebih detail.",
-        "Hmm, saya perlu memikirkan itu. Bisa Anda jelaskan ulang?",
         "Maaf, saya sedang mengalami gangguan koneksi. Coba lagi nanti ya.",
-        "Wah, topik yang menarik! Apa pendapat Anda tentang hal ini?",
-        "Saya ingin tahu lebih banyak. Bisa beri contoh?",
-        "Oke, saya catat. Pertanyaan bagus!",
-        "Menurut saya itu ide yang bagus. Bagaimana dengan Anda?",
-        "Saya akan pelajari dulu. Ada pertanyaan lain?"
+        "Saya ingin tahu lebih banyak. Bisa beri contoh?"
       ];
       aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
     }
     
-    // Save AI response
     chatSession.messages.push({
       role: 'assistant',
       content: aiResponse,
@@ -1161,7 +1020,7 @@ app.get('/api/user/profile', authenticateToken, (req, res) => {
   }
 });
 
-app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'), async (req, res) => {
+app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'), (req, res) => {
   try {
     const updateData = JSON.parse(req.body.data || '{}');
     const file = req.file;
@@ -1255,7 +1114,6 @@ app.get('/api/admin/analytics', authenticateToken, isAdmin, (req, res) => {
       );
     }
     
-    // Page views
     const pageViews = {};
     filteredAnalytics.forEach(a => {
       pageViews[a.page] = (pageViews[a.page] || 0) + 1;
@@ -1266,7 +1124,6 @@ app.get('/api/admin/analytics', authenticateToken, isAdmin, (req, res) => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 20);
     
-    // Daily visits
     const dailyVisits = {};
     filteredAnalytics.forEach(a => {
       const date = a.timestamp.toISOString().split('T')[0];
@@ -1278,7 +1135,6 @@ app.get('/api/admin/analytics', authenticateToken, isAdmin, (req, res) => {
       .sort((a, b) => a._id.localeCompare(b._id))
       .slice(0, 30);
     
-    // Unique visitors
     const uniqueIPs = new Set(filteredAnalytics.map(a => a.ip));
     
     res.json({
@@ -1303,8 +1159,6 @@ io.on('connection', (socket) => {
   socket.on('join', (data) => {
     const room = data.room || 'general';
     socket.join(room);
-    logger.info(`Socket ${socket.id} joined room ${room}`);
-    
     socket.emit('joined', { room, message: `Joined room: ${room}` });
   });
   
@@ -1313,11 +1167,8 @@ io.on('connection', (socket) => {
       const room = data.room || 'general';
       const message = data.message;
       
-      if (!message || message.trim().length === 0) {
-        return;
-      }
+      if (!message || message.trim().length === 0) return;
       
-      // Process message with AI
       let aiResponse = 'Maaf, terjadi kesalahan.';
       
       try {
@@ -1337,14 +1188,8 @@ io.on('connection', (socket) => {
         const fallbackResponses = [
           "Saya sedang belajar. Ceritakan lebih lanjut!",
           "Menarik! Bisa dijelaskan lebih detail?",
-          "Hmm, saya perlu waktu untuk memikirkan itu.",
           "Terima kasih atas masukannya!",
-          "Maaf, saya sedang gangguan. Coba lagi nanti ya.",
-          "Wah, topik yang seru! Lanjutkan...",
-          "Saya suka pertanyaan ini!",
-          "Oke, saya dengerin. Ada lagi?",
-          "Menurut saya itu ide yang kreatif!",
-          "Saya akan catat dulu. Silakan lanjutkan."
+          "Maaf, saya sedang gangguan. Coba lagi nanti ya."
         ];
         aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
       }
@@ -1385,9 +1230,9 @@ app.use('/api/*', (req, res) => {
   res.status(404).json({ message: 'API endpoint not found' });
 });
 
-// Serve frontend for all other routes
+// Serve index.html for all other routes (SPA support)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.mjs'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // =====================================================
@@ -1418,14 +1263,13 @@ const PORT = process.env.PORT || 3000;
 
 httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on http://localhost:${PORT}`);
-  logger.info(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`💾 Storage: In-Memory (RAM)`);
+  logger.info(`📁 Serving static files from: ${path.join(__dirname, 'public')}`);
+  logger.info(`📤 Uploads directory: ${uploadDir}`);
   logger.info(`📊 Stats:
     - Users: ${users.size}
     - Projects: ${projects.size}
     - Articles: ${articles.size}
     - Messages: ${messages.size}
-    - Chat Sessions: ${chatSessions.size}
   `);
 });
 
@@ -1446,7 +1290,6 @@ async function gracefulShutdown() {
       logger.info('HTTP server closed');
     });
     
-    // Clear all maps
     users.clear();
     usersByEmail.clear();
     usersByUsername.clear();
